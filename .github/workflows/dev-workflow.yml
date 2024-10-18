@@ -1,0 +1,101 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  project-build:
+    runs-on: ubuntu:latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'corretto'
+          java-version: '21'
+
+      - name: Setup maven dependencies caching
+        uses: actions/cache@v4
+        id: cache-maven
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Install maven dependencies
+        run: mvn intall
+
+      - name: Run tests
+        run: mvn --batch-mode --update-snapshots verify
+
+  docker-build:
+    runs-on: ubuntu:latest
+    needs:
+      - project-build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'corretto'
+          java-version: '21'
+
+      - name: Setup maven dependencies caching
+        uses: actions/cache@v4
+        id: cache-maven
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          contect: .
+          push: true
+          tags: ${{ vars.DOCKERHUB_USERNAME }}/storehub-sh-cicd:latest
+
+  deploy-to-server:
+    runs-on: ubuntu:latest
+    needs:
+      - docker-build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copy ssh key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Run deployment script
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_PORT: ${{ secrets.SERVER_PORT }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          DOCKER_IMAGE: ${{ vars.DOCKERHUB_USERNAME }}/storehub-sh-cicd:latest
+        run: |
+          chmod +x ./deploy.sh
+          ./deploy.sh

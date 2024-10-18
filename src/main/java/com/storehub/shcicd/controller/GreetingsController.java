@@ -10,6 +10,6 @@ public class GreetingsController {
 
     @GetMapping
     public String greetings() {
-        return "Hello World from Docker in DockerRegistry!";
+        return "Hello World with CI/CD Pipeline!";
     }
 }
